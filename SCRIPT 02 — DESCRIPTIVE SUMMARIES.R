@@ -38,9 +38,9 @@ suppressPackageStartupMessages({
 })
 
 REPO_DIR <- "."
-SUBSAMPLE_DIR <- file.path(REPO_DIR, "data", "subsamples")
+DATA_DIR <- file.path(REPO_DIR, "data")
+SUBSAMPLE_DIR <- file.path(DATA_DIR, "subsamples")
 OUT_DIR <- file.path(REPO_DIR, "output", "02_descriptives")
-dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
 SUBSAMPLE_IDS <- sprintf("%02d", 0:19)
 INPUT_FILES <- file.path(SUBSAMPLE_DIR, sprintf("subsample_%s_raw.csv", SUBSAMPLE_IDS))
