@@ -1,22 +1,26 @@
-# Criminal History Expiration: Replication Code
+# criminal-history-expiration-date
 
-This repository contains replication materials for the manuscript:
+This repository provides replication materials for the manuscript:
 
 **Decay in Recidivism Risk**
 
+---
+
 ## Overview
 
-This project examines how the predictive value of prior criminal charges changes over time. Using large-scale administrative criminal history data, the analysis evaluates three questions:
+This project examines how the predictive value of prior criminal charges changes over time. Using large-scale administrative criminal history data, the analysis evaluates three core questions:
 
-1. Does recidivism risk decline as time since a prior charge increases?
-2. Is the rate of decline consistent across jurisdictions and subgroups?
-3. At what point does predicted recidivism risk converge toward the general population base rate?
+- Does recidivism risk decline as time since a prior charge increases?
+- Is the rate of decline consistent across jurisdictions and subgroups?
+- At what point does predicted recidivism risk converge toward the general population base rate?
 
-The code is organized to reproduce the descriptive summaries, statistical models, tables, and figures reported in the manuscript.
+The scripts in this repository reproduce all descriptive analyses, statistical models, tables, figures, and appendices reported in the manuscript.
+
+---
 
 ## Repository Structure
 
-```text
+```
 .
 ├── README.md
 ├── requirements.R
@@ -32,52 +36,90 @@ The code is organized to reproduce the descriptive summaries, statistical models
 │   │   ├── ...
 │   │   └── subsample_19_raw.csv
 │   ├── wa/
-│   │   └── 2026.03.30 WA decay dataset.csv
+│   │   └── WA decay dataset.csv
 │   └── base_rates/
-│       └── state_base_rates.csv
+│       └── Baserate for modeling.csv
 └── output/
 ```
 
-## Inputs
+---
 
-### Distributed subsamples
-Place the 20 distributed subsample files in:
+## Data
 
-`data/subsamples/`
+Replication datasets are available at:
 
-Expected file names:
+https://uofnebraska-my.sharepoint.com/:f:/r/personal/49639061_nebraska_edu/Documents/Washington%20DOC/Decay/Manuscripts/Decay%20LifeCourse%20Manuscript/Documents/Data%20and%20scripts%20for%20Git%20Hub/data?csf=1&web=1&e=J8cr1a
 
-- `subsample_00_raw.csv`
-- `subsample_01_raw.csv`
+After downloading, place the files in the following folders:
+
+```
+data/subsamples/
+data/wa/
+data/base_rates/
+```
+
+---
+
+## Required Files
+
+### Subsamples
+
+Place 20 files named:
+
+- subsample_00_raw.csv
+- subsample_01_raw.csv
 - ...
-- `subsample_19_raw.csv`
+- subsample_19_raw.csv
 
-### Washington file
-Place the Washington-specific file in:
+in:
 
-`data/wa/`
+data/subsamples/
 
-Expected file name:
+---
 
-- `2026.03.30 WA decay dataset.csv`
+### Washington dataset
+
+Place the file:
+
+WA decay dataset.csv
+
+in:
+
+data/wa/
+
+---
 
 ### Base-rate file
-Place the state base-rate file in:
 
-`data/base_rates/`
+Place the file:
 
-Expected file name:
+Baserate for modeling.csv
 
-- `state_base_rates.csv`
+in:
 
-Expected columns:
+data/base_rates/
 
-- `State`
-- `base_rate`
+This file contains the state-level base rates used in the H3 analysis.
 
-## Run Order
+---
 
-Execute scripts in the following order:
+## Getting Started
+
+1. Install required packages:
+
+```r
+source("requirements.R")
+```
+
+2. Run the full analysis:
+
+```r
+source("run_all.R")
+```
+
+---
+
+## Run Order (Manual)
 
 ```r
 source("01_register_subsamples.R")
@@ -87,24 +129,24 @@ source("04_H2_invariance.R")
 source("05_H3_convergence.R")
 ```
 
-Or run the full sequence with:
-
-```r
-source("run_all.R")
-```
+---
 
 ## Output Mapping
 
 | Script | Main outputs | Manuscript components |
-|---|---|---|
+|------|-------------|----------------------|
 | 02_descriptives.R | Descriptive tables | Table 1, Appendix A |
 | 03_H1_decay.R | Decay models and figures | Table 2, Figures 3–4, Appendix C |
 | 04_H2_invariance.R | State and subgroup models | Tables 3–5, Figures 5–7, Appendix D/E |
 | 05_H3_convergence.R | Crossing-year summaries | Table 6, Figure 8 |
 
+---
+
 ## Computational Notes
 
-The distributed subsample files are the starting point for the public replication package. Models are estimated within subsamples and pooled where appropriate. For reviewer-facing replication, the code prioritizes clarity and reproducibility from the distributed files.
+The distributed subsample files are the starting point for the replication workflow. Models are estimated within subsamples and pooled where appropriate. External data hosting is used due to file size constraints.
+
+---
 
 ## Contact
 
