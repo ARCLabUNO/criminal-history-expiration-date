@@ -13,7 +13,7 @@
 #
 # INPUT
 #   /data/subsamples/subsample_00_raw.csv ... subsample_19_raw.csv
-#   /data/wa/2026.03.30 WA decay dataset.csv
+#   /data/wa/WA_decay_dataset.csv
 #
 # OUTPUT
 #   /output/04_H2_invariance/
@@ -37,14 +37,15 @@ suppressPackageStartupMessages({
 })
 
 REPO_DIR <- "."
-SUBSAMPLE_DIR <- file.path(REPO_DIR, "data", "subsamples")
-WA_DIR <- file.path(REPO_DIR, "data", "wa")
+DATA_DIR <- file.path(REPO_DIR, "data")
+SUBSAMPLE_DIR <- file.path(DATA_DIR, "subsamples")
+WA_DIR <- file.path(DATA_DIR, "wa")
 OUT_DIR <- file.path(REPO_DIR, "output", "04_H2_invariance")
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
 SUBSAMPLE_IDS <- sprintf("%02d", 0:19)
 SUBSAMPLE_FILES <- file.path(SUBSAMPLE_DIR, sprintf("subsample_%s_raw.csv", SUBSAMPLE_IDS))
-WA_FILE <- file.path(WA_DIR, "2026.03.30 WA decay dataset.csv")
+WA_FILE <- file.path(WA_DIR, "WA_decay_dataset.csv")
 
 REQUIRED_STATE_COLUMNS <- c("ResearchID", "State", "LookBack", "Recid")
 REQUIRED_WA_COLUMNS <- c("ResearchID", "Recid", "LookBack", "Male", "RaceEthnicity2", "AgeCurveGrouped", "CharType", "PriorIncarYearsCount")
