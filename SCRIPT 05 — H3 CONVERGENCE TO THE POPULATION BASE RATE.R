@@ -8,7 +8,7 @@
 #
 # INPUT
 #   /output/04_H2_invariance/H2_state_interaction_curves.csv
-#   /data/base_rates/state_base_rates.csv
+#   /data/base_rates/Baserate_for_modeling.csv
 #
 # OUTPUT
 #   /output/05_H3_convergence/
@@ -27,13 +27,14 @@ suppressPackageStartupMessages({
 })
 
 REPO_DIR <- "."
+DATA_DIR <- file.path(REPO_DIR, "data")
 H2_DIR <- file.path(REPO_DIR, "output", "04_H2_invariance")
-BASE_RATE_DIR <- file.path(REPO_DIR, "data", "base_rates")
+BASE_RATE_DIR <- file.path(DATA_DIR, "base_rates")
 OUT_DIR <- file.path(REPO_DIR, "output", "05_H3_convergence")
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
 CURVES_FILE <- file.path(H2_DIR, "H2_state_interaction_curves.csv")
-BASE_RATE_FILE <- file.path(BASE_RATE_DIR, "state_base_rates.csv")
+BASE_RATE_FILE <- file.path(BASE_RATE_DIR, "Baserate_for_modeling.csv")
 
 REQUIRED_CURVE_COLUMNS <- c("subset", "LookBack", "State", "p_hat", "RR", "model")
 REQUIRED_BASE_RATE_COLUMNS <- c("State", "base_rate")
