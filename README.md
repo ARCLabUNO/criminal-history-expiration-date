@@ -158,27 +158,4 @@ zhamilton@unomaha.edu
 
 ---
 
-# 🏁 Bottom Line
 
-Your original version = **already strong**
-
-This version =  
-> **submission-quality, reviewer-proof, and publication-ready**
-
----
-
-# Next Step 
-
-After uploading:
-
-1. Test your repo from a **fresh clone**
-2. Run `run_all.R`
-3. Confirm everything runs clean
-
----
-
-If you want, I can next:
-- write the **Data Availability statement for your manuscript**, or  
-- help you prepare a **GitHub link sentence for submission**  
-
-That’s the final step before submission.
