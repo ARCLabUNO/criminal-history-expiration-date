@@ -36,9 +36,9 @@ The scripts in this repository reproduce all descriptive analyses, statistical m
 │   │   ├── ...
 │   │   └── subsample_19_raw.csv
 │   ├── wa/
-│   │   └── WA decay dataset.csv
+│   │   └── WA_decay_dataset.csv
 │   └── base_rates/
-│       └── Baserate for modeling.csv
+│       └── Baserate_for_modeling.csv
 └── output/
 ```
 
@@ -58,48 +58,7 @@ data/wa/
 data/base_rates/
 ```
 
----
-
-## Required Files
-
-### Subsamples
-
-Place 20 files named:
-
-- subsample_00_raw.csv
-- subsample_01_raw.csv
-- ...
-- subsample_19_raw.csv
-
-in:
-
-data/subsamples/
-
----
-
-### Washington dataset
-
-Place the file:
-
-WA decay dataset.csv
-
-in:
-
-data/wa/
-
----
-
-### Base-rate file
-
-Place the file:
-
-Baserate for modeling.csv
-
-in:
-
-data/base_rates/
-
-This file contains the state-level base rates used in the H3 analysis.
+File names must match those listed above for the scripts to run correctly.
 
 ---
 
@@ -116,6 +75,8 @@ source("requirements.R")
 ```r
 source("run_all.R")
 ```
+
+Successful execution will produce output files in the `/output/` directory.
 
 ---
 
