@@ -1,5 +1,4 @@
-[README.md](https://github.com/user-attachments/files/26649491/README.md)
-# Criminal history expiration date
+# Criminal History Expiration: Replication Code
 
 This repository contains replication materials for the manuscript:
 
