@@ -17,8 +17,10 @@
 #     - H1_subset_level_coefficients.csv
 #     - H1_subset_level_fit_stats.csv
 #     - H1_subset_level_random_effects.csv
+#     - H1_subset_level_model_comparisons.csv
 #     - H1_meta_pooled_coefficients.csv
 #     - H1_meta_fit_summary.csv
+#     - H1_stouffer_model_comparisons.csv
 #     - H1_table2_glm_vs_glmm.csv
 #     - H1_appendixC_quadratic_table.csv
 #     - H1_figure3_descriptive_decay.png
@@ -48,6 +50,7 @@ REPO_DIR <- "."
 DATA_DIR <- file.path(REPO_DIR, "data")
 SUBSAMPLE_DIR <- file.path(DATA_DIR, "subsamples")
 OUT_DIR <- file.path(REPO_DIR, "output", "03_H1_decay")
+dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
 SUBSAMPLE_IDS <- sprintf("%02d", 0:19)
 INPUT_FILES <- file.path(SUBSAMPLE_DIR, sprintf("subsample_%s_raw.csv", SUBSAMPLE_IDS))
@@ -125,14 +128,14 @@ compute_descriptive_yearly_stats <- function(dt) {
     ),
     by = .(LookBack = get(LB_VAR))
   ][order(LookBack)]
-  
+
   yearly[, recid_probability := recid_events / person_year]
-  
+
   p1 <- yearly[LookBack == 1L, recid_probability]
   if (length(p1) == 0L || is.na(p1) || p1 == 0) {
     stop("LookBack == 1 is missing or has zero probability.")
   }
-  
+
   yearly[, risk_ratio_vs_year1 := recid_probability / p1]
   yearly[, proportionate_reduction_vs_year1 := 1 - risk_ratio_vs_year1]
   yearly[]
@@ -141,19 +144,19 @@ compute_descriptive_yearly_stats <- function(dt) {
 meta_pool_coefficients <- function(coef_dt) {
   coef_dt <- copy(coef_dt)
   coef_dt[, vi := std.error^2]
-  
+
   combos <- unique(coef_dt[, .(model, term)])
-  
+
   pooled_list <- lapply(seq_len(nrow(combos)), function(i) {
     m <- combos$model[i]
     t <- combos$term[i]
     sub <- coef_dt[model == m & term == t]
-    
+
     fit <- tryCatch(
       metafor::rma.uni(yi = sub$estimate, vi = sub$vi, method = "REML"),
       error = function(e) NULL
     )
-    
+
     if (is.null(fit)) {
       return(data.table(
         model = m, term = t,
@@ -162,7 +165,7 @@ meta_pool_coefficients <- function(coef_dt) {
         ci_low = NA_real_, ci_high = NA_real_
       ))
     }
-    
+
     data.table(
       model = m,
       term = t,
@@ -174,7 +177,7 @@ meta_pool_coefficients <- function(coef_dt) {
       ci_high = as.numeric(fit$ci.ub)
     )
   })
-  
+
   pooled_dt <- rbindlist(pooled_list, use.names = TRUE, fill = TRUE)
   pooled_dt[, `:=`(
     OR = exp(pooled_est),
@@ -184,17 +187,95 @@ meta_pool_coefficients <- function(coef_dt) {
   pooled_dt[]
 }
 
+extract_lrt_row <- function(anova_obj, subset_id, comparison_name, simpler_model, complex_model, n_obs) {
+  tab <- as.data.table(anova_obj)
+  if (nrow(tab) < 2L) {
+    return(data.table(
+      subset = subset_id,
+      comparison = comparison_name,
+      simpler_model = simpler_model,
+      complex_model = complex_model,
+      llr = NA_real_,
+      df_diff = NA_real_,
+      p_value = NA_real_,
+      direction = 0L,
+      preferred_model = NA_character_,
+      n_obs = n_obs
+    ))
+  }
+
+  chisq_col <- if ("Chisq" %in% names(tab)) "Chisq" else if ("LRT" %in% names(tab)) "LRT" else NA_character_
+  p_col <- grep("^Pr\\(", names(tab), value = TRUE)[1]
+
+  llr_val <- if (!is.na(chisq_col)) suppressWarnings(as.numeric(tab[[chisq_col]][2])) else NA_real_
+  p_val <- if (!is.na(p_col)) suppressWarnings(as.numeric(tab[[p_col]][2])) else NA_real_
+
+  if ("Df" %in% names(tab)) {
+    df_vals <- suppressWarnings(as.numeric(tab[["Df"]]))
+    df_diff <- if (length(df_vals) >= 2L) df_vals[2] - df_vals[1] else NA_real_
+  } else {
+    df_diff <- NA_real_
+  }
+
+  if (!is.finite(df_diff) || is.na(df_diff)) df_diff <- 1
+
+  direction <- if (is.finite(llr_val) && !is.na(llr_val) && llr_val > 0) 1L else 0L
+  preferred_model <- if (direction == 1L) complex_model else simpler_model
+
+  data.table(
+    subset = subset_id,
+    comparison = comparison_name,
+    simpler_model = simpler_model,
+    complex_model = complex_model,
+    llr = llr_val,
+    df_diff = df_diff,
+    p_value = p_val,
+    direction = direction,
+    preferred_model = preferred_model,
+    n_obs = n_obs
+  )
+}
+
+stouffer_combine <- function(comp_dt) {
+  if (nrow(comp_dt) == 0L) return(data.table())
+
+  comp_dt <- copy(comp_dt)
+  comp_dt <- comp_dt[!is.na(p_value) & !is.na(n_obs)]
+  if (nrow(comp_dt) == 0L) return(data.table())
+
+  comp_dt[, p_clipped := pmin(pmax(p_value, 1e-300), 1 - 1e-16)]
+  comp_dt[, z_i := qnorm(1 - (p_clipped / 2)) * fifelse(direction > 0, 1, -1)]
+  comp_dt[, weight := sqrt(n_obs)]
+
+  comp_dt[
+    ,
+    .(
+      k_subsamples = .N,
+      stouffer_z = sum(weight * z_i, na.rm = TRUE) / sqrt(sum(weight^2, na.rm = TRUE)),
+      stouffer_p = 2 * pnorm(-abs(sum(weight * z_i, na.rm = TRUE) / sqrt(sum(weight^2, na.rm = TRUE)))),
+      n_favor_complex = sum(direction > 0, na.rm = TRUE),
+      n_favor_simple = sum(direction <= 0, na.rm = TRUE),
+      favored_model = fifelse(
+        (sum(weight * z_i, na.rm = TRUE) / sqrt(sum(weight^2, na.rm = TRUE))) > 0,
+        unique(complex_model)[1],
+        unique(simpler_model)[1]
+      )
+    ),
+    by = .(comparison, simpler_model, complex_model)
+  ][order(comparison)]
+}
+
 fit_models_one_subsample <- function(file_path, subset_id) {
   log_line("Reading subsample %s: %s", subset_id, basename(file_path))
-  
+
   dt <- fread(file_path, showProgress = FALSE)
   validate_columns(dt, file_path)
-  
+
   dt[, ResearchID := as.character(ResearchID)]
   dt[, State := trimws(as.character(State))]
   dt[, LookBack := suppressWarnings(as.integer(LookBack))]
   dt[, Recid := suppressWarnings(as.integer(Recid))]
-  
+
   dt <- dt[
     !is.na(ResearchID) &
       !is.na(State) &
@@ -203,49 +284,49 @@ fit_models_one_subsample <- function(file_path, subset_id) {
   ]
   dt <- dt[State %chin% EXPECTED_STATES]
   dt <- dt[Recid %in% c(0L, 1L)]
-  
+
   if (is.finite(MAX_IDS_PER_SUBSAMPLE)) {
     keep_ids <- head(unique(dt$ResearchID), MAX_IDS_PER_SUBSAMPLE)
     dt <- dt[ResearchID %in% keep_ids]
   }
-  
+
   mu_lb <- mean(dt$LookBack, na.rm = TRUE)
   sd_lb <- sd(dt$LookBack, na.rm = TRUE)
   if (!is.finite(sd_lb) || sd_lb == 0) stop("LookBack SD is invalid in subsample ", subset_id, ".")
-  
+
   dt[, LookBack_z := (LookBack - mu_lb) / sd_lb]
   dt[, LookBack_z2 := LookBack_z^2]
-  
+
   yearly <- compute_descriptive_yearly_stats(dt)
   yearly[, subset := subset_id]
-  
+
   dt_comp <- if (USE_COMPRESSION) compress_binomial_counts(dt) else {
     tmp <- copy(dt)
     tmp[, y := Recid]
     tmp[, fail := 1L - Recid]
     tmp[, .(ResearchID, LookBack, LookBack_z, LookBack_z2, y, fail)]
   }
-  
+
   dt_comp[, ResearchID := factor(ResearchID)]
-  
+
   f_glm_lin <- cbind(y, fail) ~ LookBack_z
   f_glm_quad <- cbind(y, fail) ~ LookBack_z + LookBack_z2
   f_glmm_lin <- cbind(y, fail) ~ LookBack_z + (1 | ResearchID)
   f_glmm_quad <- cbind(y, fail) ~ LookBack_z + LookBack_z2 + (1 | ResearchID)
-  
+
   m_glm_lin <- glm(f_glm_lin, data = dt_comp, family = binomial(link = "logit"))
   m_glm_quad <- glm(f_glm_quad, data = dt_comp, family = binomial(link = "logit"))
-  
+
   m_glmm_lin <- glmer(
     f_glmm_lin, data = dt_comp, family = binomial(link = "logit"), nAGQ = 0L,
     control = glmerControl(optimizer = "bobyqa", calc.derivs = FALSE, optCtrl = list(maxfun = 2e5))
   )
-  
+
   m_glmm_quad <- glmer(
     f_glmm_quad, data = dt_comp, family = binomial(link = "logit"), nAGQ = 0L,
     control = glmerControl(optimizer = "bobyqa", calc.derivs = FALSE, optCtrl = list(maxfun = 2e5))
   )
-  
+
   extract_fixed <- function(model, model_name) {
     tt <- as.data.table(broom.mixed::tidy(model, effects = "fixed"))
     tt[, `:=`(
@@ -257,7 +338,7 @@ fit_models_one_subsample <- function(file_path, subset_id) {
     )]
     tt[]
   }
-  
+
   fixed_dt <- rbindlist(
     list(
       extract_fixed(m_glm_lin, "glm_linear"),
@@ -267,7 +348,7 @@ fit_models_one_subsample <- function(file_path, subset_id) {
     ),
     use.names = TRUE, fill = TRUE
   )
-  
+
   compute_fit_stats <- function(model, model_name, dt_uncompressed, terms_n) {
     p_hat <- predict(model, newdata = dt_uncompressed, type = "response", re.form = NA)
     y_obs <- dt_uncompressed[[Y_VAR]]
@@ -288,7 +369,7 @@ fit_models_one_subsample <- function(file_path, subset_id) {
       n_ids = uniqueN(dt_uncompressed[[ID_VAR]])
     )
   }
-  
+
   fit_dt <- rbindlist(
     list(
       compute_fit_stats(m_glm_lin, "glm_linear", dt, 2L),
@@ -298,7 +379,7 @@ fit_models_one_subsample <- function(file_path, subset_id) {
     ),
     use.names = TRUE, fill = TRUE
   )
-  
+
   re_dt <- rbindlist(
     list(
       data.table(
@@ -316,7 +397,52 @@ fit_models_one_subsample <- function(file_path, subset_id) {
     ),
     use.names = TRUE, fill = TRUE
   )
-  
+
+  ll_glm_lin <- as.numeric(logLik(m_glm_lin))
+  ll_glm_quad <- as.numeric(logLik(m_glm_quad))
+  ll_glmm_lin <- as.numeric(logLik(m_glmm_lin))
+  ll_glmm_quad <- as.numeric(logLik(m_glmm_quad))
+
+  comp_dt <- rbindlist(
+    list(
+      data.table(
+        subset = subset_id,
+        comparison = "glm_linear_vs_glmm_linear",
+        simpler_model = "glm_linear",
+        complex_model = "glmm_linear",
+        llr = 2 * (ll_glmm_lin - ll_glm_lin),
+        df_diff = 1,
+        p_value = ifelse(
+          is.finite(2 * (ll_glmm_lin - ll_glm_lin)) && (2 * (ll_glmm_lin - ll_glm_lin)) > 0,
+          pchisq(2 * (ll_glmm_lin - ll_glm_lin), df = 1, lower.tail = FALSE),
+          1
+        ),
+        direction = ifelse(is.finite(ll_glmm_lin - ll_glm_lin) && (ll_glmm_lin - ll_glm_lin) > 0, 1L, 0L),
+        preferred_model = ifelse(is.finite(ll_glmm_lin - ll_glm_lin) && (ll_glmm_lin - ll_glm_lin) > 0, "glmm_linear", "glm_linear"),
+        n_obs = nrow(dt)
+      ),
+      data.table(
+        subset = subset_id,
+        comparison = "glm_quadratic_vs_glmm_quadratic",
+        simpler_model = "glm_quadratic",
+        complex_model = "glmm_quadratic",
+        llr = 2 * (ll_glmm_quad - ll_glm_quad),
+        df_diff = 1,
+        p_value = ifelse(
+          is.finite(2 * (ll_glmm_quad - ll_glm_quad)) && (2 * (ll_glmm_quad - ll_glm_quad)) > 0,
+          pchisq(2 * (ll_glmm_quad - ll_glm_quad), df = 1, lower.tail = FALSE),
+          1
+        ),
+        direction = ifelse(is.finite(ll_glmm_quad - ll_glm_quad) && (ll_glmm_quad - ll_glm_quad) > 0, 1L, 0L),
+        preferred_model = ifelse(is.finite(ll_glmm_quad - ll_glm_quad) && (ll_glmm_quad - ll_glm_quad) > 0, "glmm_quadratic", "glm_quadratic"),
+        n_obs = nrow(dt)
+      ),
+      extract_lrt_row(anova(m_glm_lin, m_glm_quad, test = "Chisq"), subset_id, "glm_linear_vs_glm_quadratic", "glm_linear", "glm_quadratic", nrow(dt)),
+      extract_lrt_row(anova(m_glmm_lin, m_glmm_quad, test = "Chisq"), subset_id, "glmm_linear_vs_glmm_quadratic", "glmm_linear", "glmm_quadratic", nrow(dt))
+    ),
+    use.names = TRUE, fill = TRUE
+  )
+
   lb_seq <- sort(unique(dt$LookBack))
   curve_grid <- data.table(LookBack = lb_seq)
   curve_grid[, LookBack_z := (LookBack - mu_lb) / sd_lb]
@@ -330,8 +456,8 @@ fit_models_one_subsample <- function(file_path, subset_id) {
   curve_grid[, rr_glmm_linear := p_glmm_linear / p_glmm_linear[LookBack == 1L][1]]
   curve_grid[, rr_glmm_quadratic := p_glmm_quadratic / p_glmm_quadratic[LookBack == 1L][1]]
   curve_grid[, subset := subset_id]
-  
-  list(yearly = yearly, fixed = fixed_dt, fit = fit_dt, re = re_dt, curves = curve_grid)
+
+  list(yearly = yearly, fixed = fixed_dt, fit = fit_dt, re = re_dt, comp = comp_dt, curves = curve_grid)
 }
 
 log_line("Checking H1 input files.")
@@ -345,6 +471,7 @@ yearly_all <- rbindlist(lapply(results_list, `[[`, "yearly"), use.names = TRUE, 
 fixed_all <- rbindlist(lapply(results_list, `[[`, "fixed"), use.names = TRUE, fill = TRUE)
 fit_all <- rbindlist(lapply(results_list, `[[`, "fit"), use.names = TRUE, fill = TRUE)
 re_all <- rbindlist(lapply(results_list, `[[`, "re"), use.names = TRUE, fill = TRUE)
+comp_all <- rbindlist(lapply(results_list, `[[`, "comp"), use.names = TRUE, fill = TRUE)
 curves_all <- rbindlist(lapply(results_list, `[[`, "curves"), use.names = TRUE, fill = TRUE)
 
 yearly_summary <- yearly_all[
@@ -383,6 +510,9 @@ re_summary <- re_all[
   ),
   by = model
 ][order(model)]
+
+stouffer_summary <- stouffer_combine(comp_all)
+stouffer_summary[, stouffer_p_fmt := format_p(stouffer_p)]
 
 subset_weights <- fit_all[, .(n_obs = unique(n_obs)[1]), by = subset]
 
@@ -529,8 +659,10 @@ fwrite(yearly_summary, file.path(OUT_DIR, "H1_yearly_probabilities_and_rr.csv"))
 fwrite(fixed_all, file.path(OUT_DIR, "H1_subset_level_coefficients.csv"))
 fwrite(fit_all, file.path(OUT_DIR, "H1_subset_level_fit_stats.csv"))
 fwrite(re_all, file.path(OUT_DIR, "H1_subset_level_random_effects.csv"))
+fwrite(comp_all, file.path(OUT_DIR, "H1_subset_level_model_comparisons.csv"))
 fwrite(meta_coef, file.path(OUT_DIR, "H1_meta_pooled_coefficients.csv"))
 fwrite(fit_summary, file.path(OUT_DIR, "H1_meta_fit_summary.csv"))
+fwrite(stouffer_summary, file.path(OUT_DIR, "H1_stouffer_model_comparisons.csv"))
 fwrite(table2_dt, file.path(OUT_DIR, "H1_table2_glm_vs_glmm.csv"))
 fwrite(appendixC_quad_dt, file.path(OUT_DIR, "H1_appendixC_quadratic_table.csv"))
 
@@ -539,7 +671,9 @@ addWorksheet(wb, "YearlyDecay"); writeDataTable(wb, "YearlyDecay", yearly_summar
 addWorksheet(wb, "SubsetCoefficients"); writeDataTable(wb, "SubsetCoefficients", fixed_all)
 addWorksheet(wb, "SubsetFit"); writeDataTable(wb, "SubsetFit", fit_all)
 addWorksheet(wb, "SubsetRE"); writeDataTable(wb, "SubsetRE", re_all)
+addWorksheet(wb, "SubsetModelComparisons"); writeDataTable(wb, "SubsetModelComparisons", comp_all)
 addWorksheet(wb, "MetaCoefficients"); writeDataTable(wb, "MetaCoefficients", meta_coef)
+addWorksheet(wb, "StoufferComparisons"); writeDataTable(wb, "StoufferComparisons", stouffer_summary)
 addWorksheet(wb, "Table2"); writeDataTable(wb, "Table2", table2_dt)
 addWorksheet(wb, "AppendixC_Quadratic"); writeDataTable(wb, "AppendixC_Quadratic", appendixC_quad_dt)
 saveWorkbook(wb, file.path(OUT_DIR, "H1_results_workbook.xlsx"), overwrite = TRUE)
@@ -547,3 +681,4 @@ saveWorkbook(wb, file.path(OUT_DIR, "H1_results_workbook.xlsx"), overwrite = TRU
 log_line("H1 analyses complete.")
 print(yearly_summary)
 print(fit_summary)
+print(stouffer_summary)
