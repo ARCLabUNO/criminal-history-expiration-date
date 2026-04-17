@@ -19,6 +19,7 @@
 #   /output/04_H2_invariance/
 ############################################################
 
+
 rm(list = ls())
 
 options(stringsAsFactors = FALSE)
@@ -36,10 +37,43 @@ suppressPackageStartupMessages({
   library(openxlsx)
 })
 
-REPO_DIR <- "."
+############################################################
+# PATH SETUP — AUTO-DETECT REPO ROOT
+############################################################
+
+find_repo_root <- function(start_dir = getwd(), max_up = 6L) {
+  cur <- normalizePath(start_dir, winslash = "/", mustWork = TRUE)
+  
+  for (i in 0:max_up) {
+    has_data <- dir.exists(file.path(cur, "data"))
+    has_output <- dir.exists(file.path(cur, "output"))
+    
+    has_subsamples <- dir.exists(file.path(cur, "data", "subsamples"))
+    has_wa <- dir.exists(file.path(cur, "data", "wa"))
+    
+    if (has_data && has_output && (has_subsamples || has_wa)) {
+      return(cur)
+    }
+    
+    parent <- dirname(cur)
+    if (identical(parent, cur)) break
+    cur <- parent
+  }
+  
+  stop(
+    "Could not locate project root.\n",
+    "Start R somewhere inside the repo.\n",
+    "Current directory:\n",
+    normalizePath(start_dir)
+  )
+}
+
+REPO_DIR <- find_repo_root()
+
 DATA_DIR <- file.path(REPO_DIR, "data")
 SUBSAMPLE_DIR <- file.path(DATA_DIR, "subsamples")
 WA_DIR <- file.path(DATA_DIR, "wa")
+
 OUT_DIR <- file.path(REPO_DIR, "output", "04_H2_invariance")
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
@@ -70,12 +104,16 @@ log_line <- function(...) {
 
 stop_if_missing_files <- function(paths) {
   missing_files <- paths[!file.exists(paths)]
-  if (length(missing_files) > 0L) stop("The following required files are missing:\n", paste(missing_files, collapse = "\n"))
+  if (length(missing_files) > 0L) {
+    stop("The following required files are missing:\n", paste(missing_files, collapse = "\n"))
+  }
 }
 
 validate_columns <- function(dt, required_cols, file_path) {
   missing_cols <- setdiff(required_cols, names(dt))
-  if (length(missing_cols) > 0L) stop("Missing required columns in file:\n", file_path, "\nMissing columns: ", paste(missing_cols, collapse = ", "))
+  if (length(missing_cols) > 0L) {
+    stop("Missing required columns in file:\n", file_path, "\nMissing columns: ", paste(missing_cols, collapse = ", "))
+  }
 }
 
 format_p <- function(p) {
@@ -133,13 +171,29 @@ compute_fit_stats <- function(model, model_name, dt_uncompressed) {
 
 fit_glmm_pair <- function(dt_comp, formula_add, formula_int) {
   m_add <- glmer(
-    formula_add, data = dt_comp, family = binomial(link = "logit"), nAGQ = 0L,
-    control = glmerControl(optimizer = "bobyqa", calc.derivs = FALSE, optCtrl = list(maxfun = 2e5))
+    formula_add,
+    data = dt_comp,
+    family = binomial(link = "logit"),
+    nAGQ = 0L,
+    control = glmerControl(
+      optimizer = "bobyqa",
+      calc.derivs = FALSE,
+      optCtrl = list(maxfun = 2e5)
+    )
   )
+  
   m_int <- glmer(
-    formula_int, data = dt_comp, family = binomial(link = "logit"), nAGQ = 0L,
-    control = glmerControl(optimizer = "bobyqa", calc.derivs = FALSE, optCtrl = list(maxfun = 2e5))
+    formula_int,
+    data = dt_comp,
+    family = binomial(link = "logit"),
+    nAGQ = 0L,
+    control = glmerControl(
+      optimizer = "bobyqa",
+      calc.derivs = FALSE,
+      optCtrl = list(maxfun = 2e5)
+    )
   )
+  
   list(additive = m_add, interaction = m_int)
 }
 
@@ -153,14 +207,27 @@ meta_pool_coefficients <- function(coef_dt) {
     t <- combos$term[i]
     sub <- coef_dt[model == m & term == t]
     
-    fit <- tryCatch(metafor::rma.uni(yi = sub$estimate, vi = sub$vi, method = "REML"), error = function(e) NULL)
+    fit <- tryCatch(
+      metafor::rma.uni(yi = sub$estimate, vi = sub$vi, method = "REML"),
+      error = function(e) NULL
+    )
     
     if (is.null(fit)) {
-      return(data.table(model = m, term = t, pooled_est = NA_real_, pooled_se = NA_real_, z = NA_real_, p = NA_real_, ci_low = NA_real_, ci_high = NA_real_))
+      return(data.table(
+        model = m,
+        term = t,
+        pooled_est = NA_real_,
+        pooled_se = NA_real_,
+        z = NA_real_,
+        p = NA_real_,
+        ci_low = NA_real_,
+        ci_high = NA_real_
+      ))
     }
     
     data.table(
-      model = m, term = t,
+      model = m,
+      term = t,
       pooled_est = as.numeric(fit$b),
       pooled_se = as.numeric(fit$se),
       z = as.numeric(fit$zval),
@@ -171,7 +238,11 @@ meta_pool_coefficients <- function(coef_dt) {
   })
   
   pooled_dt <- rbindlist(pooled_list, use.names = TRUE, fill = TRUE)
-  pooled_dt[, `:=`(OR = exp(pooled_est), OR_low = exp(ci_low), OR_high = exp(ci_high))]
+  pooled_dt[, `:=`(
+    OR = exp(pooled_est),
+    OR_low = exp(ci_low),
+    OR_high = exp(ci_high)
+  )]
   pooled_dt[]
 }
 
@@ -205,7 +276,9 @@ fit_one_state_subsample <- function(file_path, subset_id) {
   
   mu_lb <- mean(dt$LookBack, na.rm = TRUE)
   sd_lb <- sd(dt$LookBack, na.rm = TRUE)
-  if (!is.finite(sd_lb) || sd_lb == 0) stop("LookBack SD is invalid in state subsample ", subset_id, ".")
+  if (!is.finite(sd_lb) || sd_lb == 0) {
+    stop("LookBack SD is invalid in state subsample ", subset_id, ".")
+  }
   
   dt[, LookBack_z := (LookBack - mu_lb) / sd_lb]
   
@@ -229,23 +302,47 @@ fit_one_state_subsample <- function(file_path, subset_id) {
   mods <- fit_glmm_pair(dt_comp, f_add, f_int)
   
   coef_dt <- rbindlist(
-    list(extract_fixed_effects(mods$additive, "additive"), extract_fixed_effects(mods$interaction, "interaction")),
-    use.names = TRUE, fill = TRUE
+    list(
+      extract_fixed_effects(mods$additive, "additive"),
+      extract_fixed_effects(mods$interaction, "interaction")
+    ),
+    use.names = TRUE,
+    fill = TRUE
   )
   coef_dt[, subset := subset_id]
   
   fit_dt <- rbindlist(
-    list(compute_fit_stats(mods$additive, "additive", dt), compute_fit_stats(mods$interaction, "interaction", dt)),
-    use.names = TRUE, fill = TRUE
+    list(
+      compute_fit_stats(mods$additive, "additive", dt),
+      compute_fit_stats(mods$interaction, "interaction", dt)
+    ),
+    use.names = TRUE,
+    fill = TRUE
   )
   fit_dt[, subset := subset_id]
   
+  var_add <- extract_random_intercept_variance(mods$additive)
+  var_int <- extract_random_intercept_variance(mods$interaction)
+  
   re_dt <- rbindlist(
     list(
-      data.table(subset = subset_id, model = "additive", var_u0 = extract_random_intercept_variance(mods$additive), sd_u0 = sqrt(extract_random_intercept_variance(mods$additive)), ICC = calc_icc(extract_random_intercept_variance(mods$additive))),
-      data.table(subset = subset_id, model = "interaction", var_u0 = extract_random_intercept_variance(mods$interaction), sd_u0 = sqrt(extract_random_intercept_variance(mods$interaction)), ICC = calc_icc(extract_random_intercept_variance(mods$interaction)))
+      data.table(
+        subset = subset_id,
+        model = "additive",
+        var_u0 = var_add,
+        sd_u0 = sqrt(var_add),
+        ICC = calc_icc(var_add)
+      ),
+      data.table(
+        subset = subset_id,
+        model = "interaction",
+        var_u0 = var_int,
+        sd_u0 = sqrt(var_int),
+        ICC = calc_icc(var_int)
+      )
     ),
-    use.names = TRUE, fill = TRUE
+    use.names = TRUE,
+    fill = TRUE
   )
   
   lb_seq <- sort(unique(dt$LookBack))
@@ -258,10 +355,19 @@ fit_one_state_subsample <- function(file_path, subset_id) {
   curve_grid[, rr_interaction := p_interaction / p_interaction[LookBack == 1L][1], by = State]
   curve_grid[, subset := subset_id]
   
-  list(coef = coef_dt, fit = fit_dt, re = re_dt, curves = curve_grid)
+  list(
+    coef = coef_dt,
+    fit = fit_dt,
+    re = re_dt,
+    curves = curve_grid
+  )
 }
 
-state_results <- lapply(seq_along(SUBSAMPLE_FILES), function(i) fit_one_state_subsample(SUBSAMPLE_FILES[i], SUBSAMPLE_IDS[i]))
+state_results <- lapply(
+  seq_along(SUBSAMPLE_FILES),
+  function(i) fit_one_state_subsample(SUBSAMPLE_FILES[i], SUBSAMPLE_IDS[i])
+)
+
 state_coef_all <- rbindlist(lapply(state_results, `[[`, "coef"), use.names = TRUE, fill = TRUE)
 state_fit_all <- rbindlist(lapply(state_results, `[[`, "fit"), use.names = TRUE, fill = TRUE)
 state_re_all <- rbindlist(lapply(state_results, `[[`, "re"), use.names = TRUE, fill = TRUE)
@@ -298,9 +404,16 @@ state_curves_long <- rbindlist(
     state_curves_all[, .(subset, LookBack, State = as.character(State), model = "additive", p_hat = p_additive, RR = rr_additive)],
     state_curves_all[, .(subset, LookBack, State = as.character(State), model = "interaction", p_hat = p_interaction, RR = rr_interaction)]
   ),
-  use.names = TRUE, fill = TRUE
+  use.names = TRUE,
+  fill = TRUE
 )
-state_curves_long <- merge(state_curves_long, state_subset_weights, by = "subset", all.x = TRUE)
+
+state_curves_long <- merge(
+  state_curves_long,
+  state_subset_weights,
+  by = "subset",
+  all.x = TRUE
+)
 
 state_curve_summary <- state_curves_long[
   ,
@@ -405,23 +518,35 @@ fit_wa_group_models <- function(dt, group_var, model_label) {
   mods <- fit_glmm_pair(dt_comp, f_add, f_int)
   
   coef_dt <- rbindlist(
-    list(extract_fixed_effects(mods$additive, "additive"), extract_fixed_effects(mods$interaction, "interaction")),
-    use.names = TRUE, fill = TRUE
+    list(
+      extract_fixed_effects(mods$additive, "additive"),
+      extract_fixed_effects(mods$interaction, "interaction")
+    ),
+    use.names = TRUE,
+    fill = TRUE
   )
   coef_dt[, domain := model_label]
   
   fit_dt <- rbindlist(
-    list(compute_fit_stats(mods$additive, "additive", dt_local), compute_fit_stats(mods$interaction, "interaction", dt_local)),
-    use.names = TRUE, fill = TRUE
+    list(
+      compute_fit_stats(mods$additive, "additive", dt_local),
+      compute_fit_stats(mods$interaction, "interaction", dt_local)
+    ),
+    use.names = TRUE,
+    fill = TRUE
   )
   fit_dt[, domain := model_label]
   
+  var_add <- extract_random_intercept_variance(mods$additive)
+  var_int <- extract_random_intercept_variance(mods$interaction)
+  
   re_dt <- rbindlist(
     list(
-      data.table(domain = model_label, model = "additive", var_u0 = extract_random_intercept_variance(mods$additive), sd_u0 = sqrt(extract_random_intercept_variance(mods$additive)), ICC = calc_icc(extract_random_intercept_variance(mods$additive))),
-      data.table(domain = model_label, model = "interaction", var_u0 = extract_random_intercept_variance(mods$interaction), sd_u0 = sqrt(extract_random_intercept_variance(mods$interaction)), ICC = calc_icc(extract_random_intercept_variance(mods$interaction)))
+      data.table(domain = model_label, model = "additive", var_u0 = var_add, sd_u0 = sqrt(var_add), ICC = calc_icc(var_add)),
+      data.table(domain = model_label, model = "interaction", var_u0 = var_int, sd_u0 = sqrt(var_int), ICC = calc_icc(var_int))
     ),
-    use.names = TRUE, fill = TRUE
+    use.names = TRUE,
+    fill = TRUE
   )
   
   lrt_dt <- as.data.table(anova(mods$additive, mods$interaction, test = "Chisq"))
@@ -432,13 +557,21 @@ fit_wa_group_models <- function(dt, group_var, model_label) {
   
   curve_grid <- CJ(LookBack = lb_seq, GroupLevel = group_levels)
   setnames(curve_grid, "GroupLevel", group_var)
-  if (is.factor(dt_local[[group_var]])) curve_grid[, (group_var) := factor(get(group_var), levels = group_levels)]
+  if (is.factor(dt_local[[group_var]])) {
+    curve_grid[, (group_var) := factor(get(group_var), levels = group_levels)]
+  }
   curve_grid[, LookBack_z := (LookBack - wa_mu_lb) / wa_sd_lb]
   curve_grid[, p_hat := as.numeric(predict(mods$interaction, newdata = curve_grid, type = "response", re.form = NA))]
   curve_grid[, RR := p_hat / p_hat[LookBack == 1L][1], by = group_var]
   curve_grid[, domain := model_label]
   
-  list(coefficients = coef_dt, fit = fit_dt, re = re_dt, lrt = lrt_dt, curves = curve_grid)
+  list(
+    coefficients = coef_dt,
+    fit = fit_dt,
+    re = re_dt,
+    lrt = lrt_dt,
+    curves = curve_grid
+  )
 }
 
 fit_wa_incarceration_models <- function(dt) {
@@ -463,23 +596,35 @@ fit_wa_incarceration_models <- function(dt) {
   mods <- fit_glmm_pair(dt_comp, f_add, f_int)
   
   coef_dt <- rbindlist(
-    list(extract_fixed_effects(mods$additive, "additive"), extract_fixed_effects(mods$interaction, "interaction")),
-    use.names = TRUE, fill = TRUE
+    list(
+      extract_fixed_effects(mods$additive, "additive"),
+      extract_fixed_effects(mods$interaction, "interaction")
+    ),
+    use.names = TRUE,
+    fill = TRUE
   )
   coef_dt[, domain := "Incarceration"]
   
   fit_dt <- rbindlist(
-    list(compute_fit_stats(mods$additive, "additive", dt_local), compute_fit_stats(mods$interaction, "interaction", dt_local)),
-    use.names = TRUE, fill = TRUE
+    list(
+      compute_fit_stats(mods$additive, "additive", dt_local),
+      compute_fit_stats(mods$interaction, "interaction", dt_local)
+    ),
+    use.names = TRUE,
+    fill = TRUE
   )
   fit_dt[, domain := "Incarceration"]
   
+  var_add <- extract_random_intercept_variance(mods$additive)
+  var_int <- extract_random_intercept_variance(mods$interaction)
+  
   re_dt <- rbindlist(
     list(
-      data.table(domain = "Incarceration", model = "additive", var_u0 = extract_random_intercept_variance(mods$additive), sd_u0 = sqrt(extract_random_intercept_variance(mods$additive)), ICC = calc_icc(extract_random_intercept_variance(mods$additive))),
-      data.table(domain = "Incarceration", model = "interaction", var_u0 = extract_random_intercept_variance(mods$interaction), sd_u0 = sqrt(extract_random_intercept_variance(mods$interaction)), ICC = calc_icc(extract_random_intercept_variance(mods$interaction)))
+      data.table(domain = "Incarceration", model = "additive", var_u0 = var_add, sd_u0 = sqrt(var_add), ICC = calc_icc(var_add)),
+      data.table(domain = "Incarceration", model = "interaction", var_u0 = var_int, sd_u0 = sqrt(var_int), ICC = calc_icc(var_int))
     ),
-    use.names = TRUE, fill = TRUE
+    use.names = TRUE,
+    fill = TRUE
   )
   
   lrt_dt <- as.data.table(anova(mods$additive, mods$interaction, test = "Chisq"))
@@ -494,7 +639,13 @@ fit_wa_incarceration_models <- function(dt) {
   incar_grid[, RR := p_hat / p_hat[LookBack == 1L][1], by = GroupLabel]
   incar_grid[, domain := "Incarceration"]
   
-  list(coefficients = coef_dt, fit = fit_dt, re = re_dt, lrt = lrt_dt, curves = incar_grid)
+  list(
+    coefficients = coef_dt,
+    fit = fit_dt,
+    re = re_dt,
+    lrt = lrt_dt,
+    curves = incar_grid
+  )
 }
 
 sex_results <- fit_wa_group_models(wa_dt, "Male", "Sex")
@@ -503,14 +654,58 @@ age_results <- fit_wa_group_models(wa_dt, "AgeCurveGrouped", "Age")
 crime_results <- fit_wa_group_models(wa_dt, "CrimeType2", "CrimeType")
 incar_results <- fit_wa_incarceration_models(wa_dt)
 
-wa_coef_all <- rbindlist(list(sex_results$coefficients, race_results$coefficients, age_results$coefficients, crime_results$coefficients, incar_results$coefficients), use.names = TRUE, fill = TRUE)
-wa_fit_all <- rbindlist(list(sex_results$fit, race_results$fit, age_results$fit, crime_results$fit, incar_results$fit), use.names = TRUE, fill = TRUE)
-wa_re_all <- rbindlist(list(sex_results$re, race_results$re, age_results$re, crime_results$re, incar_results$re), use.names = TRUE, fill = TRUE)
-wa_lrt_all <- rbindlist(list(sex_results$lrt, race_results$lrt, age_results$lrt, crime_results$lrt, incar_results$lrt), use.names = TRUE, fill = TRUE)
+wa_coef_all <- rbindlist(
+  list(
+    sex_results$coefficients,
+    race_results$coefficients,
+    age_results$coefficients,
+    crime_results$coefficients,
+    incar_results$coefficients
+  ),
+  use.names = TRUE,
+  fill = TRUE
+)
+
+wa_fit_all <- rbindlist(
+  list(
+    sex_results$fit,
+    race_results$fit,
+    age_results$fit,
+    crime_results$fit,
+    incar_results$fit
+  ),
+  use.names = TRUE,
+  fill = TRUE
+)
+
+wa_re_all <- rbindlist(
+  list(
+    sex_results$re,
+    race_results$re,
+    age_results$re,
+    crime_results$re,
+    incar_results$re
+  ),
+  use.names = TRUE,
+  fill = TRUE
+)
+
+wa_lrt_all <- rbindlist(
+  list(
+    sex_results$lrt,
+    race_results$lrt,
+    age_results$lrt,
+    crime_results$lrt,
+    incar_results$lrt
+  ),
+  use.names = TRUE,
+  fill = TRUE
+)
 
 table3_dt <- dcast(
   state_meta_coef[, .(
-    model, term,
+    model,
+    term,
     logit_se = sprintf("%.2f (%.2f)", pooled_est, pooled_se),
     or_ci = sprintf("%.2f (%.2f, %.2f)", OR, OR_low, OR_high),
     p_fmt = format_p(p)
@@ -524,7 +719,8 @@ table3_dt[, term := NULL]
 table4_dt <- wa_coef_all[
   domain %in% c("Sex", "RaceEthnicity", "Age"),
   .(
-    domain, model,
+    domain,
+    model,
     Predictor = make_term_labels(term),
     logit_se = sprintf("%.2f (%.2f)", estimate, std.error),
     or_ci = sprintf("%.2f (%.2f, %.2f)", OR, OR_low, OR_high),
@@ -535,7 +731,8 @@ table4_dt <- wa_coef_all[
 table5_dt <- wa_coef_all[
   domain %in% c("CrimeType", "Incarceration"),
   .(
-    domain, model,
+    domain,
+    model,
     Predictor = make_term_labels(term),
     logit_se = sprintf("%.2f (%.2f)", estimate, std.error),
     or_ci = sprintf("%.2f (%.2f, %.2f)", OR, OR_low, OR_high),
@@ -546,9 +743,14 @@ table5_dt <- wa_coef_all[
 appendixE_dt <- copy(wa_coef_all)[
   ,
   .(
-    domain, model,
+    domain,
+    model,
     Predictor = make_term_labels(term),
-    estimate, std.error, OR, OR_low, OR_high,
+    estimate,
+    std.error,
+    OR,
+    OR_low,
+    OR_high,
     p_value = p.value
   )
 ]
@@ -558,13 +760,21 @@ state_fig_dt <- state_curve_summary[model == "interaction"]
 fig5_prob <- ggplot(state_fig_dt, aes(x = LookBack, y = p_hat, linetype = State, color = State)) +
   geom_line(linewidth = 0.9) +
   scale_y_continuous(labels = percent_format(accuracy = 0.1)) +
-  labs(title = "A. State-specific predicted recidivism probability", x = "Lookback year", y = "Predicted probability") +
+  labs(
+    title = "A. State-specific predicted recidivism probability",
+    x = "Lookback year",
+    y = "Predicted probability"
+  ) +
   theme_classic(base_family = BASE_FAMILY, base_size = 12)
 
 fig5_rr <- ggplot(state_fig_dt, aes(x = LookBack, y = RR, linetype = State, color = State)) +
   geom_hline(yintercept = 1, linetype = "dashed", linewidth = 0.5) +
   geom_line(linewidth = 0.9) +
-  labs(title = "B. State-specific risk ratio decay", x = "Lookback year", y = "Risk ratio") +
+  labs(
+    title = "B. State-specific risk ratio decay",
+    x = "Lookback year",
+    y = "Risk ratio"
+  ) +
   theme_classic(base_family = BASE_FAMILY, base_size = 12)
 
 fig5 <- fig5_prob + fig5_rr + plot_layout(ncol = 2)
@@ -613,6 +823,19 @@ fig7b <- ggplot(incar_curve_dt, aes(x = LookBack, y = p_hat, linetype = GroupLab
 fig7 <- fig7a + fig7b + plot_layout(ncol = 2)
 ggsave(file.path(OUT_DIR, "H2_figure7_context_decay.png"), fig7, width = 12, height = 5, dpi = 300)
 
+############################################################
+# SAVE FILES
+############################################################
+
+# Pooled H2 state interaction curves (used for H2 figures and summaries)
+state_interaction_curves_pooled <- state_curve_summary[model == "interaction"][order(State, LookBack)]
+
+# Subset-level H2 state interaction curves (used for H3)
+state_interaction_curves_by_subset <- state_curves_long[model == "interaction"][
+  ,
+  .(subset, LookBack, State, p_hat, RR, model)
+][order(subset, State, LookBack)]
+
 fwrite(state_meta_coef, file.path(OUT_DIR, "H2_state_meta_coefficients.csv"))
 fwrite(state_fit_summary, file.path(OUT_DIR, "H2_state_fit_summary.csv"))
 fwrite(table3_dt, file.path(OUT_DIR, "H2_table3_state.csv"))
@@ -623,7 +846,8 @@ fwrite(appendixE_dt, file.path(OUT_DIR, "H2_appendixE_alternate_models.csv"))
 fwrite(wa_lrt_all, file.path(OUT_DIR, "H2_wa_model_comparisons.csv"))
 fwrite(wa_fit_all, file.path(OUT_DIR, "H2_wa_fit_stats.csv"))
 fwrite(wa_re_all, file.path(OUT_DIR, "H2_wa_random_effects.csv"))
-fwrite(state_curve_summary[model == "interaction"], file.path(OUT_DIR, "H2_state_interaction_curves.csv"))
+fwrite(state_interaction_curves_pooled, file.path(OUT_DIR, "H2_state_interaction_curves.csv"))
+fwrite(state_interaction_curves_by_subset, file.path(OUT_DIR, "H2_state_interaction_curves_by_subset.csv"))
 
 wb <- createWorkbook()
 addWorksheet(wb, "Table3_State"); writeDataTable(wb, "Table3_State", table3_dt)
