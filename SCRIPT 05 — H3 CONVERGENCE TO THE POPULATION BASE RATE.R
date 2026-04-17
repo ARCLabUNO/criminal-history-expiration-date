@@ -7,7 +7,7 @@
 #   base rate.
 #
 # INPUT
-#   /output/04_H2_invariance/H2_state_interaction_curves.csv
+#   /output/04_H2_invariance/H2_state_interaction_curves_by_subset.csv
 #   /data/base_rates/Baserate_for_modeling_clean_headers.csv
 #     OR
 #   /data/base_rates/Baserate_for_modeling.csv
@@ -54,9 +54,8 @@ BASE_RATE_DIR <- file.path(DATA_DIR, "base_rates")
 OUT_DIR <- file.path(REPO_DIR, "output", "05_H3_convergence")
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-CURVES_FILE <- file.path(H2_DIR, "H2_state_interaction_curves.csv")
+CURVES_FILE <- file.path(H2_DIR, "H2_state_interaction_curves_by_subset.csv")
 
-# Prefer the cleaned, self-explanatory file if present; otherwise fall back.
 BASE_RATE_FILE_CLEAN <- file.path(BASE_RATE_DIR, "Baserate_for_modeling_clean_headers.csv")
 BASE_RATE_FILE_LEGACY <- file.path(BASE_RATE_DIR, "Baserate_for_modeling.csv")
 
@@ -67,7 +66,6 @@ BASE_RATE_FILE <- if (file.exists(BASE_RATE_FILE_CLEAN)) {
 }
 
 REQUIRED_CURVE_COLUMNS <- c("subset", "LookBack", "State", "p_hat", "RR", "model")
-
 EXPECTED_STATES <- c("AK", "AZ", "FL", "TX", "WA")
 
 LB_MIN <- 0
@@ -91,10 +89,10 @@ validate_columns <- function(dt, required_cols, file_path) {
 }
 
 find_crossing_true <- function(LB, p, base_rate, lb_min = 0, lb_max = Inf) {
-  base_rate <- base_rate[1]
+  base_rate <- as.numeric(base_rate[1])
   o <- order(LB)
-  LB <- LB[o]
-  p <- p[o]
+  LB <- as.numeric(LB[o])
+  p <- as.numeric(p[o])
   
   keep <- LB >= lb_min & LB <= lb_max
   LB <- LB[keep]
@@ -119,10 +117,12 @@ find_crossing_true <- function(LB, p, base_rate, lb_min = 0, lb_max = Inf) {
   t <- (base_rate - y0) / (y1 - y0)
   x <- x0 + (x1 - x0) * t
   if (!is.finite(x)) return(NA_real_)
+  
   as.numeric(x)
 }
 
 fmt_ci <- function(mid, lo, hi, digits = 2) {
+  if (any(!is.finite(c(mid, lo, hi)))) return(NA_character_)
   sprintf(
     paste0("%.", digits, "f (%.", digits, "f, %.", digits, "f)"),
     mid, lo, hi
@@ -132,16 +132,12 @@ fmt_ci <- function(mid, lo, hi, digits = 2) {
 build_state_base_rates <- function(base_dt, expected_states) {
   nm <- names(base_dt)
   
-  # Standardize state column
   if (!"State" %in% nm) {
     stop("Base-rate file must contain a 'State' column.")
   }
   
   base_dt[, State := trimws(as.character(State))]
   
-  # ----------------------------------------------------------
-  # FORMAT A: cleaned detailed file with informative headers
-  # ----------------------------------------------------------
   if (all(c("Denominator_Annual_State_Population",
             "Numerator_Annual_Recidivism_Events") %in% nm)) {
     
@@ -174,9 +170,6 @@ build_state_base_rates <- function(base_dt, expected_states) {
     return(out[order(State)])
   }
   
-  # ----------------------------------------------------------
-  # FORMAT B: legacy detailed file
-  # ----------------------------------------------------------
   if (all(c("TotalOffenders", "TotalOffenders (NumeratorData)") %in% nm)) {
     
     log_line("Detected legacy detailed base-rate file format.")
@@ -206,9 +199,6 @@ build_state_base_rates <- function(base_dt, expected_states) {
     return(out[order(State)])
   }
   
-  # ----------------------------------------------------------
-  # FORMAT C: already aggregated file
-  # ----------------------------------------------------------
   if ("base_rate" %in% nm) {
     
     log_line("Detected aggregated state base-rate file format.")
@@ -240,7 +230,11 @@ build_state_base_rates <- function(base_dt, expected_states) {
 }
 
 if (!file.exists(CURVES_FILE)) {
-  stop("Missing H2 state interaction curves file:\n", CURVES_FILE)
+  stop(
+    "Missing subset-level H2 state interaction curves file:\n",
+    CURVES_FILE,
+    "\n\nRerun Script 04 first."
+  )
 }
 if (!file.exists(BASE_RATE_FILE)) {
   stop("Missing state base-rate file:\n", BASE_RATE_FILE)
@@ -262,7 +256,11 @@ curves[, `:=`(
   model = as.character(model)
 )]
 
-curves <- curves[State %in% EXPECTED_STATES & LookBack >= LB_MIN & LookBack <= LB_MAX]
+curves <- curves[
+  State %in% EXPECTED_STATES &
+    LookBack >= LB_MIN &
+    LookBack <= LB_MAX
+]
 
 base_rates <- build_state_base_rates(base_raw, EXPECTED_STATES)
 
@@ -275,7 +273,13 @@ if (length(missing_states) > 0L) {
   stop("Base-rate file is missing expected states: ", paste(missing_states, collapse = ", "))
 }
 
-curves <- merge(curves, base_rates[, .(State, base_rate)], by = "State", all.x = TRUE)
+curves <- merge(
+  curves,
+  base_rates[, .(State, base_rate)],
+  by = "State",
+  all.x = TRUE
+)
+
 if (curves[is.na(base_rate), .N] > 0L) {
   stop("One or more states in the curves file do not have a matching base rate.")
 }
@@ -294,8 +298,8 @@ crossing_state_summary_dt <- crossings_dt[
   .(
     n_subsets_with_crossing = sum(!is.na(crossing_year)),
     crossing_median = if (all(is.na(crossing_year))) NA_real_ else median(crossing_year, na.rm = TRUE),
-    crossing_q025 = if (all(is.na(crossing_year))) NA_real_ else quantile(crossing_year, 0.025, na.rm = TRUE),
-    crossing_q975 = if (all(is.na(crossing_year))) NA_real_ else quantile(crossing_year, 0.975, na.rm = TRUE),
+    crossing_q025 = if (all(is.na(crossing_year))) NA_real_ else as.numeric(quantile(crossing_year, 0.025, na.rm = TRUE)),
+    crossing_q975 = if (all(is.na(crossing_year))) NA_real_ else as.numeric(quantile(crossing_year, 0.975, na.rm = TRUE)),
     crossing_mean = if (all(is.na(crossing_year))) NA_real_ else mean(crossing_year, na.rm = TRUE),
     crossing_sd = if (all(is.na(crossing_year))) NA_real_ else sd(crossing_year, na.rm = TRUE),
     base_rate = unique(base_rate)[1]
@@ -337,14 +341,14 @@ within_mean_summary_dt <- within_mean_metrics_dt[
   ,
   .(
     mean_crossing_median = median(mean_crossing, na.rm = TRUE),
-    mean_crossing_q025 = quantile(mean_crossing, 0.025, na.rm = TRUE),
-    mean_crossing_q975 = quantile(mean_crossing, 0.975, na.rm = TRUE),
+    mean_crossing_q025 = as.numeric(quantile(mean_crossing, 0.025, na.rm = TRUE)),
+    mean_crossing_q975 = as.numeric(quantile(mean_crossing, 0.975, na.rm = TRUE)),
     prop_within_median = median(prop_within, na.rm = TRUE),
-    prop_within_q025 = quantile(prop_within, 0.025, na.rm = TRUE),
-    prop_within_q975 = quantile(prop_within, 0.975, na.rm = TRUE),
+    prop_within_q025 = as.numeric(quantile(prop_within, 0.025, na.rm = TRUE)),
+    prop_within_q975 = as.numeric(quantile(prop_within, 0.975, na.rm = TRUE)),
     max_deviation_median = median(max_deviation, na.rm = TRUE),
-    max_deviation_q025 = quantile(max_deviation, 0.025, na.rm = TRUE),
-    max_deviation_q975 = quantile(max_deviation, 0.975, na.rm = TRUE)
+    max_deviation_q025 = as.numeric(quantile(max_deviation, 0.025, na.rm = TRUE)),
+    max_deviation_q975 = as.numeric(quantile(max_deviation, 0.975, na.rm = TRUE))
   ),
   by = delta_years
 ][order(delta_years)]
@@ -355,7 +359,11 @@ table6_dt <- crossing_state_summary_dt[
     State,
     BaseRate = sprintf("%.3f", base_rate),
     CrossingYear = fmt_ci(crossing_median, crossing_q025, crossing_q975, 2),
-    MeanSD = sprintf("%.2f (%.2f)", crossing_mean, crossing_sd),
+    MeanSD = ifelse(
+      is.finite(crossing_mean) & is.finite(crossing_sd),
+      sprintf("%.2f (%.2f)", crossing_mean, crossing_sd),
+      NA_character_
+    ),
     N_Subsets = n_subsets_with_crossing
   )
 ]
@@ -423,29 +431,13 @@ fwrite(overall_crossing_summary_dt, file.path(OUT_DIR, "H3_overall_convergence_s
 fwrite(base_rates, file.path(OUT_DIR, "H3_state_base_rates_used.csv"))
 
 wb <- createWorkbook()
-addWorksheet(wb, "CrossingsBySubsetState")
-writeDataTable(wb, "CrossingsBySubsetState", crossings_dt)
-
-addWorksheet(wb, "StateSummary")
-writeDataTable(wb, "StateSummary", crossing_state_summary_dt)
-
-addWorksheet(wb, "WithinMeanBySubset")
-writeDataTable(wb, "WithinMeanBySubset", within_mean_metrics_dt)
-
-addWorksheet(wb, "WithinMeanSummary")
-writeDataTable(wb, "WithinMeanSummary", within_mean_summary_dt)
-
-addWorksheet(wb, "Table6")
-writeDataTable(wb, "Table6", table6_dt)
-
-addWorksheet(wb, "BaseRatesUsed")
-writeDataTable(wb, "BaseRatesUsed", base_rates)
-
-saveWorkbook(
-  wb,
-  file.path(OUT_DIR, "H3_results_workbook.xlsx"),
-  overwrite = TRUE
-)
+addWorksheet(wb, "CrossingsBySubsetState"); writeDataTable(wb, "CrossingsBySubsetState", crossings_dt)
+addWorksheet(wb, "StateSummary"); writeDataTable(wb, "StateSummary", crossing_state_summary_dt)
+addWorksheet(wb, "WithinMeanBySubset"); writeDataTable(wb, "WithinMeanBySubset", within_mean_metrics_dt)
+addWorksheet(wb, "WithinMeanSummary"); writeDataTable(wb, "WithinMeanSummary", within_mean_summary_dt)
+addWorksheet(wb, "Table6"); writeDataTable(wb, "Table6", table6_dt)
+addWorksheet(wb, "BaseRatesUsed"); writeDataTable(wb, "BaseRatesUsed", base_rates)
+saveWorkbook(wb, file.path(OUT_DIR, "H3_results_workbook.xlsx"), overwrite = TRUE)
 
 log_line("H3 analyses complete.")
 print(base_rates)
