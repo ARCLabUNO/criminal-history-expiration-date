@@ -2,7 +2,7 @@
 
 This repository provides replication materials for the manuscript:
 
-**Decay in Recidivism Risk**
+**Criminal history’s expiration date: Universal evidence of decay**
 
 ---
 
